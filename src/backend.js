@@ -156,10 +156,10 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   try {
-    const chat = await spindle.chats.get(chatId);
-    if (chat && chat.character_id) {
-      spindle.log.info(`[autoimg] Chat character_id: ${chat.character_id}`);
-      const character = await spindle.characters.get(chat.character_id);
+    const active = await spindle.chats.getActive();
+    if (active && active.id === chatId && active.character_id) {
+      spindle.log.info(`[autoimg] Active chat character_id: ${active.character_id}`);
+      const character = await spindle.characters.get(active.character_id);
       if (character) {
         spindle.log.info(`[autoimg] Character found: ${character.name}, image_id: ${character.image_id || 'none'}`);
         if (character.image_id) {
