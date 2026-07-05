@@ -1,9 +1,9 @@
 export function setup(ctx) {
-  ctx.sendToBackend({ type: 'register_user' })
+  ctx.sendToBackend({ type: 'register_user', baseUrl: window.location.origin })
 
   const unsubSwitch = ctx.events.on('CHAT_SWITCHED', (payload) => {
     if (payload.chatId) {
-      ctx.sendToBackend({ type: 'register_user' })
+      ctx.sendToBackend({ type: 'register_user', baseUrl: window.location.origin })
     }
   })
 

@@ -2,8 +2,40 @@ const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
 const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
+let storedBaseUrl = null;
+let detectedProvider = null;
 const chatCharacterMap = new Map();
-const chatAvatarMap = new Map();
+
+const PROVIDER_CONFIGS = {
+  sdwebuiapi: {
+    initImageField: 'init_images',
+    isArray: true,
+    stripDataUri: true,
+    extraParams: { denoising_strength: 0.6 },
+  },
+  novelai: {
+    initImageField: 'reference_image',
+    isArray: false,
+    stripDataUri: false,
+    extraParams: {},
+  },
+  openai: {
+    initImageField: 'image',
+    isArray: false,
+    stripDataUri: false,
+    extraParams: {},
+  },
+  default: {
+    initImageField: 'init_image',
+    isArray: false,
+    stripDataUri: false,
+    extraParams: {},
+  },
+};
+
+function getProviderConfig(providerId) {
+  return PROVIDER_CONFIGS[providerId] || PROVIDER_CONFIGS.default;
+}
 
 function sanitizeAlt(text) {
   return String(text).replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -102,7 +134,8 @@ function registerInterceptorIfPermitted() {
 spindle.onFrontendMessage(async (payload, userId) => {
   if (payload.type === 'register_user') {
     storedUserId = userId;
-    spindle.log.info(`[autoimg] userId registered from frontend: ${userId}`);
+    storedBaseUrl = payload.baseUrl;
+    spindle.log.info(`[autoimg] Registered: userId=${userId}, baseUrl=${storedBaseUrl}`);
   }
 });
 
@@ -163,11 +196,23 @@ async function replaceTagWithImage(chatId, message) {
       spindle.log.info(`[autoimg] Fetching character ${characterId} with userId ${storedUserId}`);
       const character = await spindle.characters.get(characterId, storedUserId);
       if (character && character.image_id) {
-        spindle.log.info(`[autoimg] Character image_id: ${character.image_id}`);
+          spindle.log.info(`[autoimg] Character image_id: ${character.image_id}`);
         const image = await spindle.images.get(character.image_id, { userId: storedUserId });
         if (image) {
-          initImage = image.url;
-          spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage?.substring(0, 80)}...`);
+          const fullImageUrl = `${storedBaseUrl}${image.url}`;
+          spindle.log.info(`[autoimg] Fetching image via CORS proxy from: ${fullImageUrl}`);
+          const corsResp = await spindle.cors(fullImageUrl, {
+            method: 'GET',
+            responseType: 'arraybuffer',
+            mediaType: 'image',
+          });
+          if (corsResp.status === 200 && corsResp.body) {
+            const contentType = corsResp.headers['content-type'] || 'image/png';
+            initImage = `data:${contentType};base64,${corsResp.body}`;
+            spindle.log.info(`[autoimg] Got avatar as base64 data URL via CORS proxy`);
+          } else {
+            spindle.log.info(`[autoimg] CORS proxy fetch failed: ${corsResp.status}`);
+          }
         }
       } else {
         spindle.log.info(`[autoimg] Character has no image_id or character not found`);
@@ -189,15 +234,28 @@ async function replaceTagWithImage(chatId, message) {
     };
     
     if (initImage) {
+      const cfg = getProviderConfig(detectedProvider);
+      let initValue;
+      if (cfg.stripDataUri) {
+        initValue = initImage.includes(';base64,') ? initImage.split(';base64,')[1] : initImage;
+      } else {
+        initValue = initImage;
+      }
+      const overrideBody = { ...cfg.extraParams };
+      overrideBody[cfg.initImageField] = cfg.isArray ? [initValue] : initValue;
       generateParams.parameters = {
-        rawRequestOverride: JSON.stringify({
-          image: initImage
-        })
+        rawRequestOverride: JSON.stringify(overrideBody),
       };
+      spindle.log.info(`[autoimg] Provider config: ${detectedProvider || 'default'}, field: ${cfg.initImageField}`);
     }
     
     const result = await spindle.imageGen.generate(generateParams);
     spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
+
+    if (result?.provider && !detectedProvider) {
+      detectedProvider = result.provider;
+      spindle.log.info(`[autoimg] Detected provider: ${detectedProvider}`);
+    }
 
     const imageRef = result?.imageUrl || result?.imageDataUrl;
     if (!imageRef) {
@@ -234,14 +292,6 @@ spindle.on("GENERATION_STARTED", (payload) => {
   if (chatId && characterId) {
     chatCharacterMap.set(chatId, characterId);
     spindle.log.info(`[autoimg] Cached characterId ${characterId} for chat ${chatId}`);
-  }
-});
-
-spindle.on("CHARACTER_AVATAR_CHANGED", (payload) => {
-  const { chatId, imageId } = payload || {};
-  if (chatId && imageId) {
-    chatAvatarMap.set(chatId, imageId);
-    spindle.log.info(`[autoimg] Cached avatar imageId ${imageId} for chat ${chatId}`);
   }
 });
 
