@@ -148,9 +148,9 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   try {
-    const chat = await spindle.chats.get(chatId);
+    const chat = await spindle.chats.get(chatId, storedUserId);
     if (chat && chat.character_id) {
-      const character = await spindle.characters.get(chat.character_id);
+      const character = await spindle.characters.get(chat.character_id, storedUserId);
       if (character && character.avatar) {
         initImage = character.avatar;
         spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage}`);
