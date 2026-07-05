@@ -1,4 +1,5 @@
 const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
+const IMG2IMG_SEPARATOR = "|";
 const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
@@ -12,6 +13,11 @@ function buildPromptInstruction() {
     "## Image Generation Trigger",
     "You have the ability to generate images using this EXACT tag format:",
     "[[AUTOIMG: your image prompt here]]",
+    "",
+    "### FOR IMG2IMG (use existing image as reference):",
+    "[[AUTOIMG: your image prompt here | image_url]]",
+    "Use this when you want to modify or continue from an existing image.",
+    "The image_url can be any image URL from the conversation.",
     "",
     "### PROMPT STYLE: Danbooru Tags + Natural Description",
     "Structure your image prompts using DANBOORU-STYLE TAGS for key elements,",
@@ -29,6 +35,7 @@ function buildPromptInstruction() {
     "- A dramatic moment that benefits from visual context",
     "- The user asks to see something visual",
     "- Creating atmosphere for a new setting",
+    "- Modifying or continuing from an existing image (use img2img format)",
     "",
     "### WHEN NOT TO USE:",
     "- Continuing a conversation without new visual elements",
@@ -50,9 +57,9 @@ function buildPromptInstruction() {
     "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light, her leather armor detailed with intricate engravings. A confident expression on her face as she looks directly at you.]]",
     "She adjusts her armor and looks at you with determination...",
     "",
-    "User: 'Describe the scene as she enters the throne room'",
-    "Response: [[AUTOIMG: throne_room, grand_hall, marble_pillars, red_carpet, chandelier, dramatic_lighting, high_ceiling, medieval_fantasy, ornate_decorations. She steps into the grand throne room, the red carpet stretching before her beneath the glow of crystal chandeliers. Dramatic shadows play across marble pillars as she approaches with grace.]]",
-    "The throne room opens before her, vast and imposing..."
+    "User: 'Make her smile instead'",
+    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, smile, happy_expression, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light, her leather armor detailed with intricate engravings. A warm smile on her face as she looks at you. | https://example.com/previous-image.png]]",
+    "Her expression softens into a gentle smile..."
   ].join("\n");
 }
 
@@ -136,8 +143,22 @@ async function replaceTagWithImage(chatId, message) {
     spindle.log.warn("[autoimg] Found AUTOIMG tag with empty prompt.");
     return;
   }
-  spindle.log.info(`[autoimg] Extracted prompt: ${prompt.substring(0, 100)}...`);
-  const generationPrompt = withRequiredLoraSuffix(prompt);
+  
+  let imagePrompt = prompt;
+  let initImage = null;
+  
+  const separatorIndex = prompt.lastIndexOf(IMG2IMG_SEPARATOR);
+  if (separatorIndex !== -1) {
+    const possibleUrl = prompt.substring(separatorIndex + 1).trim();
+    if (possibleUrl.startsWith("http")) {
+      initImage = possibleUrl;
+      imagePrompt = prompt.substring(0, separatorIndex).trim();
+      spindle.log.info(`[autoimg] Img2img detected. Init image: ${initImage}`);
+    }
+  }
+  
+  spindle.log.info(`[autoimg] Extracted prompt: ${imagePrompt.substring(0, 100)}...`);
+  const generationPrompt = withRequiredLoraSuffix(imagePrompt);
 
   if (!storedUserId) {
     spindle.log.error("[autoimg] Cannot generate image: userId not available. Make sure the frontend module is loaded.");
@@ -147,11 +168,22 @@ async function replaceTagWithImage(chatId, message) {
   try {
     spindle.log.info(`[autoimg] Calling imageGen.generate with userId: ${storedUserId}`);
     
-    const result = await spindle.imageGen.generate({
+    const generateParams = {
       prompt: generationPrompt,
       owner_chat_id: chatId,
       userId: storedUserId
-    });
+    };
+    
+    if (initImage) {
+      generateParams.parameters = {
+        rawRequestOverride: JSON.stringify({
+          image: initImage
+        })
+      };
+      spindle.log.info(`[autoimg] Using img2img with init image`);
+    }
+    
+    const result = await spindle.imageGen.generate(generateParams);
     spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
 
     const imageRef = result?.imageUrl || result?.imageDataUrl;
@@ -159,7 +191,7 @@ async function replaceTagWithImage(chatId, message) {
       throw new Error("Image generation returned no imageUrl/imageDataUrl.");
     }
 
-    const alt = sanitizeAlt(prompt) || "Generated scene image";
+    const alt = sanitizeAlt(imagePrompt) || "Generated scene image";
     const replacement = `![Generated scene image: ${alt}](${imageRef})`;
     const updatedContent = content.replace(match[0], replacement);
 
@@ -167,8 +199,9 @@ async function replaceTagWithImage(chatId, message) {
       content: updatedContent,
       metadata: {
         autoimg: {
-          prompt,
+          prompt: imagePrompt,
           generationPrompt,
+          initImage,
           imageId: result?.imageId || null,
           provider: result?.provider || null,
           model: result?.model || null,
