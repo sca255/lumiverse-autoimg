@@ -200,18 +200,19 @@ async function replaceTagWithImage(chatId, message) {
         const image = await spindle.images.get(character.image_id, { userId: storedUserId });
         if (image) {
           const fullImageUrl = `${storedBaseUrl}${image.url}`;
-          spindle.log.info(`[autoimg] Fetching image via CORS proxy from: ${fullImageUrl}`);
-          const corsResp = await spindle.cors(fullImageUrl, {
-            method: 'GET',
-            responseType: 'arraybuffer',
-            mediaType: 'image',
-          });
-          if (corsResp.status === 200 && corsResp.body) {
-            const contentType = corsResp.headers['content-type'] || 'image/png';
-            initImage = `data:${contentType};base64,${corsResp.body}`;
-            spindle.log.info(`[autoimg] Got avatar as base64 data URL via CORS proxy`);
+          spindle.log.info(`[autoimg] Fetching image directly from: ${fullImageUrl}`);
+          const resp = await fetch(fullImageUrl);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            initImage = `data:${resp.headers.get('content-type') || 'image/png'};base64,${btoa(binary)}`;
+            spindle.log.info(`[autoimg] Converted avatar to base64 data URL (${buf.byteLength} bytes)`);
           } else {
-            spindle.log.info(`[autoimg] CORS proxy fetch failed: ${corsResp.status}`);
+            spindle.log.info(`[autoimg] Direct fetch failed: ${resp.status}`);
           }
         }
       } else {
