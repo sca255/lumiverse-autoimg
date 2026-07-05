@@ -175,12 +175,14 @@ async function replaceTagWithImage(chatId, message) {
     };
     
     if (initImage) {
+      spindle.log.info(`[autoimg] Img2img mode - init image URL: ${initImage}`);
       generateParams.parameters = {
         rawRequestOverride: JSON.stringify({
-          image: initImage
+          image: initImage,
+          init_image: initImage,
+          init_image_url: initImage
         })
       };
-      spindle.log.info(`[autoimg] Using img2img with init image`);
     }
     
     const result = await spindle.imageGen.generate(generateParams);
