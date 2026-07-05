@@ -98,8 +98,9 @@ async function replaceTagWithImage(chatId, message) {
 
   const content = message.content;
   const messageId = message.id;
+  const userId = message.userId;
   
-  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}`);
+  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}, userId: ${userId}`);
   
   if (typeof content !== "string") {
     spindle.log.info(`[autoimg] Skipping: content is not a string`);
@@ -135,11 +136,19 @@ async function replaceTagWithImage(chatId, message) {
     spindle.log.info(`[autoimg] Calling imageGen.generate...`);
     
     // Generate image - for user-scoped extensions, userId is inferred automatically
-    // For operator-scoped extensions, this will fail with "userId is required"
-    const result = await spindle.imageGen.generate({
+    // For operator-scoped extensions, we need to pass userId explicitly
+    const generateParams = {
       prompt: generationPrompt,
       owner_chat_id: chatId
-    });
+    };
+    
+    // Add userId if available (required for operator-scoped extensions)
+    if (userId) {
+      generateParams.userId = userId;
+      spindle.log.info(`[autoimg] Using userId: ${userId}`);
+    }
+    
+    const result = await spindle.imageGen.generate(generateParams);
     spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
 
     const imageRef = result?.imageUrl || result?.imageDataUrl;
@@ -193,7 +202,24 @@ spindle.on("GENERATION_ENDED", async (payload) => {
   
   if (hasAutoimg) {
     spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
-    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant" });
+    
+    // Try to get userId from chat context
+    let userId = null;
+    try {
+      const chat = await spindle.chats.get(chatId);
+      if (chat) {
+        spindle.log.info(`[autoimg] Chat found: ${JSON.stringify(chat).substring(0, 300)}`);
+        // Check if chat has user info in metadata
+        if (chat.metadata && chat.metadata.userId) {
+          userId = chat.metadata.userId;
+          spindle.log.info(`[autoimg] Found userId in chat metadata: ${userId}`);
+        }
+      }
+    } catch (e) {
+      spindle.log.info(`[autoimg] Could not get chat: ${e.message}`);
+    }
+    
+    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant", userId });
   }
 });
 
