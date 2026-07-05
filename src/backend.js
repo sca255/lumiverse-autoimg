@@ -191,7 +191,7 @@ async function replaceTagWithImage(chatId, message) {
     if (initImage) {
       generateParams.parameters = {
         rawRequestOverride: JSON.stringify({
-          init_image: initImage
+          image: initImage
         })
       };
     }
