@@ -1,5 +1,4 @@
 const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
-const IMG2IMG_SEPARATOR = "|";
 const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
@@ -13,11 +12,6 @@ function buildPromptInstruction() {
     "## Image Generation Trigger",
     "You have the ability to generate images using this EXACT tag format:",
     "[[AUTOIMG: your image prompt here]]",
-    "",
-    "### FOR IMG2IMG (use existing image as reference):",
-    "[[AUTOIMG: your image prompt here | image_url]]",
-    "Use this when you want to modify or continue from an existing image.",
-    "The image_url can be any image URL from the conversation.",
     "",
     "### PROMPT STYLE: Danbooru Tags + Natural Description",
     "Structure your image prompts using DANBOORU-STYLE TAGS for key elements,",
@@ -35,7 +29,6 @@ function buildPromptInstruction() {
     "- A dramatic moment that benefits from visual context",
     "- The user asks to see something visual",
     "- Creating atmosphere for a new setting",
-    "- Modifying or continuing from an existing image (use img2img format)",
     "",
     "### WHEN NOT TO USE:",
     "- Continuing a conversation without new visual elements",
@@ -47,19 +40,19 @@ function buildPromptInstruction() {
     "- The tag must appear on its OWN LINE",
     "- After the tag, continue your text response normally",
     "",
-    "### EXAMPLES of good usage:",
+    "### EXAMPLES:",
     "",
-    "User: 'What does the ancient library look like?'",
-    "Response: [[AUTOIMG: library, ancient_books, wooden_shelves, stained_glass, dust_particles, sunlight_beams, high_ceiling, fantasy, ornate_architecture, vast_interior. Warm sunlight filters through stained glass windows, casting colorful patterns across towering shelves filled with ancient leather-bound books. Dust motes float in the golden light, magical atmosphere, cinematic composition.]]",
+    "User: 'Show me the ancient library'",
+    "Response: [[AUTOIMG: library, ancient_books, wooden_shelves, stained_glass, dust_particles, sunlight_beams, high_ceiling, fantasy, ornate_architecture, vast_interior. Warm sunlight filters through stained glass windows, casting colorful patterns across towering shelves filled with ancient leather-bound books.]]",
     "This magnificent library stretches upward indefinitely...",
     "",
     "User: 'Show me my character'",
-    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light, her leather armor detailed with intricate engravings. A confident expression on her face as she looks directly at you.]]",
+    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light.]]",
     "She adjusts her armor and looks at you with determination...",
     "",
-    "User: 'Make her smile instead'",
-    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, smile, happy_expression, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light, her leather armor detailed with intricate engravings. A warm smile on her face as she looks at you. | https://example.com/previous-image.png]]",
-    "Her expression softens into a gentle smile..."
+    "User: 'What does the throne room look like?'",
+    "Response: [[AUTOIMG: throne_room, grand_hall, marble_pillars, red_carpet, chandelier, dramatic_lighting, high_ceiling, medieval_fantasy, ornate_decorations. She steps into the grand throne room, the red carpet stretching before her beneath the glow of crystal chandeliers.]]",
+    "The throne room opens before her, vast and imposing..."
   ].join("\n");
 }
 
@@ -144,25 +137,27 @@ async function replaceTagWithImage(chatId, message) {
     return;
   }
   
-  let imagePrompt = prompt;
-  let initImage = null;
-  
-  const separatorIndex = prompt.lastIndexOf(IMG2IMG_SEPARATOR);
-  if (separatorIndex !== -1) {
-    const possibleUrl = prompt.substring(separatorIndex + 1).trim();
-    if (possibleUrl.startsWith("http")) {
-      initImage = possibleUrl;
-      imagePrompt = prompt.substring(0, separatorIndex).trim();
-      spindle.log.info(`[autoimg] Img2img detected. Init image: ${initImage}`);
-    }
-  }
-  
+  const imagePrompt = prompt;
   spindle.log.info(`[autoimg] Extracted prompt: ${imagePrompt.substring(0, 100)}...`);
   const generationPrompt = withRequiredLoraSuffix(imagePrompt);
 
   if (!storedUserId) {
     spindle.log.error("[autoimg] Cannot generate image: userId not available. Make sure the frontend module is loaded.");
     return;
+  }
+
+  let initImage = null;
+  try {
+    const chat = await spindle.chats.get(chatId);
+    if (chat && chat.character_id) {
+      const character = await spindle.characters.get(chat.character_id);
+      if (character && character.avatar) {
+        initImage = character.avatar;
+        spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage}`);
+      }
+    }
+  } catch (e) {
+    spindle.log.info(`[autoimg] Could not get character avatar: ${e.message}`);
   }
 
   try {
@@ -175,12 +170,9 @@ async function replaceTagWithImage(chatId, message) {
     };
     
     if (initImage) {
-      spindle.log.info(`[autoimg] Img2img mode - init image URL: ${initImage}`);
       generateParams.parameters = {
         rawRequestOverride: JSON.stringify({
-          image: initImage,
-          init_image: initImage,
-          init_image_url: initImage
+          init_image: initImage
         })
       };
     }
