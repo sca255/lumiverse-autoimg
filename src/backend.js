@@ -90,12 +90,28 @@ function registerInterceptorIfPermitted() {
 
 async function replaceTagWithImage(chatId, message) {
   spindle.log.info(`[autoimg] replaceTagWithImage called. chatId: ${chatId}`);
-  if (!message || message.role !== "assistant" || typeof message.content !== "string") {
-    spindle.log.info(`[autoimg] Skipping: message=${!!message}, role=${message?.role}, contentType=${typeof message?.content}`);
+  
+  if (!message) {
+    spindle.log.info(`[autoimg] Skipping: message is null/undefined`);
     return;
   }
 
-  const match = message.content.match(TAG_REGEX);
+  // Try to extract content from different possible structures
+  let content = message.content;
+  if (typeof content === "object" && content !== null) {
+    content = content?.text || content?.content || JSON.stringify(content);
+  }
+  
+  // Also check if role is nested differently
+  const role = message.role || message.author || message.sender;
+  spindle.log.info(`[autoimg] Extracted role: ${role}, content type: ${typeof content}`);
+  
+  if (typeof content !== "string") {
+    spindle.log.info(`[autoimg] Skipping: content is not a string`);
+    return;
+  }
+
+  const match = content.match(TAG_REGEX);
   if (!match) {
     spindle.log.info(`[autoimg] No AUTOIMG tag found in message content`);
     return;
@@ -117,13 +133,16 @@ async function replaceTagWithImage(chatId, message) {
     spindle.log.warn("[autoimg] Found AUTOIMG tag with empty prompt.");
     return;
   }
+  spindle.log.info(`[autoimg] Extracted prompt: ${prompt.substring(0, 100)}...`);
   const generationPrompt = withRequiredLoraSuffix(prompt);
 
   try {
+    spindle.log.info(`[autoimg] Calling imageGen.generate...`);
     const result = await spindle.imageGen.generate({
       prompt: generationPrompt,
       owner_chat_id: chatId
     });
+    spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
 
     const imageRef = result?.imageUrl || result?.imageDataUrl;
     if (!imageRef) {
@@ -132,7 +151,7 @@ async function replaceTagWithImage(chatId, message) {
 
     const alt = sanitizeAlt(prompt) || "Generated scene image";
     const replacement = `![Generated scene image: ${alt}](${imageRef})`;
-    const updatedContent = message.content.replace(match[0], replacement);
+    const updatedContent = content.replace(match[0], replacement);
 
     await spindle.chat.updateMessage(chatId, message.id, {
       content: updatedContent,
@@ -156,14 +175,25 @@ async function replaceTagWithImage(chatId, message) {
 }
 
 spindle.on("MESSAGE_SENT", async ({ chatId, message }) => {
-  spindle.log.info(`[autoimg] MESSAGE_SENT event received. Role: ${message?.role}, Content type: ${typeof message?.content}`);
-  if (typeof message?.content === "string") {
-    const hasAutoimg = message.content.includes("[[AUTOIMG:");
+  spindle.log.info(`[autoimg] MESSAGE_SENT event received. chatId: ${chatId}`);
+  spindle.log.info(`[autoimg] Message keys: ${Object.keys(message || {}).join(", ")}`);
+  spindle.log.info(`[autoimg] Message type: ${typeof message}, role: ${message?.role}, content type: ${typeof message?.content}`);
+  
+  // Try to extract content from different possible structures
+  let content = message?.content;
+  if (typeof content === "object" && content !== null) {
+    content = content?.text || content?.content || JSON.stringify(content);
+    spindle.log.info(`[autoimg] Extracted content from object: ${typeof content}`);
+  }
+  
+  if (typeof content === "string") {
+    const hasAutoimg = content.includes("[[AUTOIMG:");
     spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
     if (hasAutoimg) {
-      spindle.log.info(`[autoimg] Message content preview: ${message.content.substring(0, 200)}...`);
+      spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
     }
   }
+  
   await replaceTagWithImage(chatId, message);
 });
 
