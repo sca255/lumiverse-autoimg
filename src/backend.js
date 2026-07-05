@@ -10,49 +10,57 @@ function sanitizeAlt(text) {
 function buildPromptInstruction() {
   return [
     "## Image Generation Trigger",
-    "You have the ability to generate images using this EXACT tag format:",
-    "[[AUTOIMG: your image prompt here]]",
+    "Generate images using this EXACT format:",
+    "[[AUTOIMG: danbooru_tags, more_tags, even_more_tags. Brief composition sentence.]]",
     "",
-    "### PROMPT STYLE: Danbooru Tags + Natural Description",
-    "Structure your image prompts using DANBOORU-STYLE TAGS for key elements,",
-    "followed by a natural description for mood, composition, and lighting.",
+    "### DANBOORU TAG FORMAT (strict rules):",
+    "- ALL tags are lowercase with underscores: 1girl, long_hair, blue_eyes",
+    "- NO spaces in tags - use underscores only",
+    "- Tags separated by commas",
+    "- Order: character → appearance → clothing → pose → expression → setting → style",
+    "- End with ONE sentence describing composition/lighting/mood",
+    "- NO natural language in the tag section - only valid Danbooru tags",
     "",
-    "Tag format rules:",
-    "- Use lowercase, underscore-separated tags (e.g. 1girl, long_hair, blue_eyes)",
-    "- List tags in order: subject → appearance → clothing → pose → setting → style",
-    "- Separate tags with commas",
-    "- Add a natural language sentence after the tags for atmosphere and composition",
+    "### TAG ORDER EXAMPLES:",
+    "Character: 1girl, 1boy, multiple_girls",
+    "Hair: blonde_hair, long_hair, ponytail, twintails",
+    "Eyes: blue_eyes, green_eyes, heterochromia",
+    "Body: tanned_skin, pale_skin, muscular, slim",
+    "Clothing: dress, armor, school_uniform, swimsuit",
+    "Pose: standing, sitting, kneeling, lying_down, action_pose",
+    "Expression: smile, blush, serious, crying, open_mouth",
+    "Setting: indoors, outdoors, forest, city, bedroom, throne_room",
+    "Style: masterpiece, best_quality, highly_detailed, anime_style",
     "",
-    "### WHEN TO USE the image tag:",
-    "- Describing a new scene, location, or environment",
-    "- Introducing a character appearance or outfit for the first time",
-    "- A dramatic moment that benefits from visual context",
-    "- The user asks to see something visual",
-    "- Creating atmosphere for a new setting",
+    "### WHEN TO USE:",
+    "- New scene or location description",
+    "- Character appearance reveal",
+    "- Dramatic visual moment",
+    "- User asks to see something",
     "",
     "### WHEN NOT TO USE:",
-    "- Continuing a conversation without new visual elements",
-    "- Explaining concepts, feelings, or dialogue",
-    "- The scene is already established and no new visuals are introduced",
+    "- Regular dialogue or text responses",
+    "- Concepts without visual element",
+    "- Scene already established",
     "",
     "### FORMAT RULES:",
-    "- Include ONLY ONE tag per message",
-    "- The tag must appear on its OWN LINE",
-    "- After the tag, continue your text response normally",
+    "- ONE tag per message only",
+    "- Tag on its OWN LINE",
+    "- Text response continues after tag",
     "",
     "### EXAMPLES:",
     "",
-    "User: 'Show me the ancient library'",
-    "Response: [[AUTOIMG: library, ancient_books, wooden_shelves, stained_glass, dust_particles, sunlight_beams, high_ceiling, fantasy, ornate_architecture, vast_interior. Warm sunlight filters through stained glass windows, casting colorful patterns across towering shelves filled with ancient leather-bound books.]]",
-    "This magnificent library stretches upward indefinitely...",
+    "User: 'Show me the library'",
+    "Response: [[AUTOIMG: library, ancient_books, wooden_shelves, stained_glass, dust_particles, sunlight_beams, high_ceiling, fantasy, ornate_architecture, vast_interior. Warm sunlight through stained glass, golden light on ancient books.]]",
+    "The library stretches upward indefinitely...",
     "",
-    "User: 'Show me my character'",
-    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. She stands in a moonlit clearing, silver hair catching the light.]]",
-    "She adjusts her armor and looks at you with determination...",
+    "User: 'Show my character'",
+    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. Moonlight catches silver hair, armor gleams softly.]]",
+    "She stands ready, determination in her eyes...",
     "",
     "User: 'What does the throne room look like?'",
-    "Response: [[AUTOIMG: throne_room, grand_hall, marble_pillars, red_carpet, chandelier, dramatic_lighting, high_ceiling, medieval_fantasy, ornate_decorations. She steps into the grand throne room, the red carpet stretching before her beneath the glow of crystal chandeliers.]]",
-    "The throne room opens before her, vast and imposing..."
+    "Response: [[AUTOIMG: throne_room, grand_hall, marble_pillars, red_carpet, chandelier, dramatic_lighting, high_ceiling, medieval_fantasy, ornate_decorations, vast_interior. Crystal chandeliers cast dramatic shadows across marble.]]",
+    "The throne room opens before you, vast and imposing..."
   ].join("\n");
 }
 
@@ -148,16 +156,23 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   try {
-    const chat = await spindle.chats.get(chatId, storedUserId);
+    const chat = await spindle.chats.get(chatId);
     if (chat && chat.character_id) {
-      const character = await spindle.characters.get(chat.character_id, storedUserId);
-      if (character && character.avatar) {
-        initImage = character.avatar;
-        spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage}`);
+      spindle.log.info(`[autoimg] Chat character_id: ${chat.character_id}`);
+      const character = await spindle.characters.get(chat.character_id);
+      if (character) {
+        spindle.log.info(`[autoimg] Character found: ${character.name}, image_id: ${character.image_id || 'none'}`);
+        if (character.image_id) {
+          const image = await spindle.images.get(character.image_id);
+          if (image) {
+            initImage = image.imageUrl || image.imageDataUrl;
+            spindle.log.info(`[autoimg] Using character image as init_image: ${initImage?.substring(0, 80)}...`);
+          }
+        }
       }
     }
   } catch (e) {
-    spindle.log.info(`[autoimg] Could not get character avatar: ${e.message}`);
+    spindle.log.info(`[autoimg] Could not get character image (will generate without img2img): ${e.message}`);
   }
 
   try {
