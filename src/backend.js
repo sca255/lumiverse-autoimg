@@ -174,23 +174,40 @@ async function replaceTagWithImage(chatId, message) {
   }
 }
 
-spindle.on("MESSAGE_SENT", async ({ chatId, message }) => {
-  spindle.log.info(`[autoimg] MESSAGE_SENT event received. chatId: ${chatId}`);
-  spindle.log.info(`[autoimg] Message keys: ${Object.keys(message || {}).join(", ")}`);
-  spindle.log.info(`[autoimg] Message type: ${typeof message}, role: ${message?.role}, content type: ${typeof message?.content}`);
+spindle.on("MESSAGE_SENT", async (...args) => {
+  spindle.log.info(`[autoimg] MESSAGE_SENT event received. Args count: ${args.length}`);
   
-  // Try to extract content from different possible structures
-  let content = message?.content;
-  if (typeof content === "object" && content !== null) {
-    content = content?.text || content?.content || JSON.stringify(content);
-    spindle.log.info(`[autoimg] Extracted content from object: ${typeof content}`);
+  // Handle different possible event signatures
+  let chatId, message;
+  if (args.length === 1) {
+    // Payload object: { chatId, message }
+    const payload = args[0];
+    chatId = payload?.chatId;
+    message = payload?.message;
+  } else if (args.length === 2) {
+    // Separate args: (chatId, message)
+    chatId = args[0];
+    message = args[1];
   }
   
-  if (typeof content === "string") {
-    const hasAutoimg = content.includes("[[AUTOIMG:");
-    spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
-    if (hasAutoimg) {
-      spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
+  spindle.log.info(`[autoimg] Extracted - chatId: ${chatId}, message type: ${typeof message}`);
+  
+  if (message) {
+    spindle.log.info(`[autoimg] Message keys: ${Object.keys(message).join(", ")}`);
+    spindle.log.info(`[autoimg] Message role: ${message.role}, content type: ${typeof message.content}`);
+    
+    // Try to extract content from different possible structures
+    let content = message.content;
+    if (typeof content === "object" && content !== null) {
+      content = content?.text || content?.content || JSON.stringify(content);
+    }
+    
+    if (typeof content === "string") {
+      const hasAutoimg = content.includes("[[AUTOIMG:");
+      spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
+      if (hasAutoimg) {
+        spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
+      }
     }
   }
   
