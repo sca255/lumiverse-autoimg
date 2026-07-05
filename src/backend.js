@@ -186,7 +186,7 @@ async function replaceTagWithImage(chatId, message) {
     }
 
     const alt = sanitizeAlt(imagePrompt) || "Generated scene image";
-    const replacement = `${match[0]}\n[img]${imageRef}[/img]`;
+    const replacement = `${match[0]}\n![${alt}](${imageRef})`;
     const updatedContent = content.replace(match[0], replacement);
 
     await spindle.chat.updateMessage(chatId, messageId, {
