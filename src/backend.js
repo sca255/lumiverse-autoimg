@@ -1,6 +1,7 @@
 const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
 const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
+let storedUserId = null;
 
 function sanitizeAlt(text) {
   return String(text).replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -88,6 +89,13 @@ function registerInterceptorIfPermitted() {
   spindle.log.info("[autoimg] Interceptor registered successfully.");
 }
 
+spindle.onFrontendMessage(async (payload, userId) => {
+  if (payload.type === 'register_user') {
+    storedUserId = userId;
+    spindle.log.info(`[autoimg] userId registered from frontend: ${userId}`);
+  }
+});
+
 async function replaceTagWithImage(chatId, message) {
   spindle.log.info(`[autoimg] replaceTagWithImage called. chatId: ${chatId}`);
   
@@ -98,9 +106,8 @@ async function replaceTagWithImage(chatId, message) {
 
   const content = message.content;
   const messageId = message.id;
-  const userId = message.userId;
   
-  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}, userId: ${userId}`);
+  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}`);
   
   if (typeof content !== "string") {
     spindle.log.info(`[autoimg] Skipping: content is not a string`);
@@ -132,23 +139,19 @@ async function replaceTagWithImage(chatId, message) {
   spindle.log.info(`[autoimg] Extracted prompt: ${prompt.substring(0, 100)}...`);
   const generationPrompt = withRequiredLoraSuffix(prompt);
 
+  if (!storedUserId) {
+    spindle.log.error("[autoimg] Cannot generate image: userId not available. Make sure the frontend module is loaded.");
+    return;
+  }
+
   try {
-    spindle.log.info(`[autoimg] Calling imageGen.generate...`);
+    spindle.log.info(`[autoimg] Calling imageGen.generate with userId: ${storedUserId}`);
     
-    // Generate image - for user-scoped extensions, userId is inferred automatically
-    // For operator-scoped extensions, we need to pass userId explicitly
-    const generateParams = {
+    const result = await spindle.imageGen.generate({
       prompt: generationPrompt,
-      owner_chat_id: chatId
-    };
-    
-    // Add userId if available (required for operator-scoped extensions)
-    if (userId) {
-      generateParams.userId = userId;
-      spindle.log.info(`[autoimg] Using userId: ${userId}`);
-    }
-    
-    const result = await spindle.imageGen.generate(generateParams);
+      owner_chat_id: chatId,
+      userId: storedUserId
+    });
     spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
 
     const imageRef = result?.imageUrl || result?.imageDataUrl;
@@ -202,24 +205,7 @@ spindle.on("GENERATION_ENDED", async (payload) => {
   
   if (hasAutoimg) {
     spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
-    
-    // Try to get userId from chat context
-    let userId = null;
-    try {
-      const chat = await spindle.chats.get(chatId);
-      if (chat) {
-        spindle.log.info(`[autoimg] Chat found: ${JSON.stringify(chat).substring(0, 300)}`);
-        // Check if chat has user info in metadata
-        if (chat.metadata && chat.metadata.userId) {
-          userId = chat.metadata.userId;
-          spindle.log.info(`[autoimg] Found userId in chat metadata: ${userId}`);
-        }
-      }
-    } catch (e) {
-      spindle.log.info(`[autoimg] Could not get chat: ${e.message}`);
-    }
-    
-    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant", userId });
+    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant" });
   }
 });
 
@@ -236,4 +222,4 @@ spindle.permissions.onDenied(({ permission, operation }) => {
 spindle.log.info("[autoimg] Extension loading...");
 spindle.log.info(`[autoimg] Available permissions: interceptor=${spindle.permissions.has("interceptor")}, image_gen=${spindle.permissions.has("image_gen")}, chat_mutation=${spindle.permissions.has("chat_mutation")}`);
 registerInterceptorIfPermitted();
-spindle.log.info("[autoimg] Extension loaded.");
+spindle.log.info("[autoimg] Extension loaded. Waiting for userId from frontend...");

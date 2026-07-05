@@ -6,5 +6,6 @@
   "description": "Generates images when assistant emits [[AUTOIMG: ...]] and replaces the tag with markdown image output.",
   "permissions": ["interceptor", "image_gen", "chat_mutation", "generation"],
   "entry_backend": "src/backend.js",
+  "entry_frontend": "src/frontend.js",
   "minimum_lumiverse_version": "0.1.0"
 }
