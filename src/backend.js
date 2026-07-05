@@ -155,25 +155,8 @@ async function replaceTagWithImage(chatId, message) {
   }
 
   let initImage = null;
-  try {
-    const active = await spindle.chats.getActive();
-    if (active && active.id === chatId && active.character_id) {
-      spindle.log.info(`[autoimg] Active chat character_id: ${active.character_id}`);
-      const character = await spindle.characters.get(active.character_id);
-      if (character) {
-        spindle.log.info(`[autoimg] Character found: ${character.name}, image_id: ${character.image_id || 'none'}`);
-        if (character.image_id) {
-          const image = await spindle.images.get(character.image_id);
-          if (image) {
-            initImage = image.imageUrl || image.imageDataUrl;
-            spindle.log.info(`[autoimg] Using character image as init_image: ${initImage?.substring(0, 80)}...`);
-          }
-        }
-      }
-    }
-  } catch (e) {
-    spindle.log.info(`[autoimg] Could not get character image (operator-scoped limitation): ${e.message}`);
-  }
+  // Note: img2img with character image is not possible with operator-scoped extensions
+  // because chats.get() and characters.get() require userId but don't accept it as a param.
 
   try {
     spindle.log.info(`[autoimg] Calling imageGen.generate with userId: ${storedUserId}`);
