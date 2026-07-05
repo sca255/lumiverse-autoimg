@@ -5,6 +5,7 @@ let storedUserId = null;
 let storedBaseUrl = null;
 let detectedProvider = null;
 const chatCharacterMap = new Map();
+const chatAvatarDataMap = new Map();
 
 const PROVIDER_CONFIGS = {
   sdwebuiapi: {
@@ -136,6 +137,9 @@ spindle.onFrontendMessage(async (payload, userId) => {
     storedUserId = userId;
     storedBaseUrl = payload.baseUrl;
     spindle.log.info(`[autoimg] Registered: userId=${userId}, baseUrl=${storedBaseUrl}`);
+  } else if (payload.type === 'avatar_data') {
+    chatAvatarDataMap.set(payload.chatId, payload.base64);
+    spindle.log.info(`[autoimg] Cached avatar base64 for chat ${payload.chatId} from frontend`);
   }
 });
 
@@ -190,39 +194,11 @@ async function replaceTagWithImage(chatId, message) {
   }
 
   let initImage = null;
-  try {
-    const characterId = chatCharacterMap.get(chatId);
-    if (characterId && storedUserId) {
-      spindle.log.info(`[autoimg] Fetching character ${characterId} with userId ${storedUserId}`);
-      const character = await spindle.characters.get(characterId, storedUserId);
-      if (character && character.image_id) {
-          spindle.log.info(`[autoimg] Character image_id: ${character.image_id}`);
-        const image = await spindle.images.get(character.image_id, { userId: storedUserId });
-        if (image) {
-          const fullImageUrl = `${storedBaseUrl}${image.url}`;
-          spindle.log.info(`[autoimg] Fetching image directly from: ${fullImageUrl}`);
-          const resp = await fetch(fullImageUrl);
-          if (resp.ok) {
-            const buf = await resp.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            initImage = `data:${resp.headers.get('content-type') || 'image/png'};base64,${btoa(binary)}`;
-            spindle.log.info(`[autoimg] Converted avatar to base64 data URL (${buf.byteLength} bytes)`);
-          } else {
-            spindle.log.info(`[autoimg] Direct fetch failed: ${resp.status}`);
-          }
-        }
-      } else {
-        spindle.log.info(`[autoimg] Character has no image_id or character not found`);
-      }
-    } else {
-      spindle.log.info(`[autoimg] No characterId cached for chat ${chatId} or no userId`);
-    }
-  } catch (e) {
-    spindle.log.info(`[autoimg] Could not get character avatar: ${e.message}`);
+  initImage = chatAvatarDataMap.get(chatId) || null;
+  if (initImage) {
+    spindle.log.info(`[autoimg] Using cached avatar from frontend for chat ${chatId}`);
+  } else {
+    spindle.log.info(`[autoimg] No cached avatar for chat ${chatId}, generating without init_image`);
   }
 
   try {
