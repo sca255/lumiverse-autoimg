@@ -96,15 +96,10 @@ async function replaceTagWithImage(chatId, message) {
     return;
   }
 
-  // Try to extract content from different possible structures
-  let content = message.content;
-  if (typeof content === "object" && content !== null) {
-    content = content?.text || content?.content || JSON.stringify(content);
-  }
+  const content = message.content;
+  const messageId = message.id;
   
-  // Also check if role is nested differently
-  const role = message.role || message.author || message.sender;
-  spindle.log.info(`[autoimg] Extracted role: ${role}, content type: ${typeof content}`);
+  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}`);
   
   if (typeof content !== "string") {
     spindle.log.info(`[autoimg] Skipping: content is not a string`);
@@ -153,10 +148,9 @@ async function replaceTagWithImage(chatId, message) {
     const replacement = `![Generated scene image: ${alt}](${imageRef})`;
     const updatedContent = content.replace(match[0], replacement);
 
-    await spindle.chat.updateMessage(chatId, message.id, {
+    await spindle.chat.updateMessage(chatId, messageId, {
       content: updatedContent,
       metadata: {
-        ...(message.metadata || {}),
         autoimg: {
           prompt,
           generationPrompt,
@@ -168,50 +162,36 @@ async function replaceTagWithImage(chatId, message) {
       }
     });
 
-    spindle.log.info(`[autoimg] Generated image for message ${message.id}.`);
+    spindle.log.info(`[autoimg] Generated image for message ${messageId}.`);
   } catch (err) {
     spindle.log.error(`[autoimg] Image generation failed: ${err?.message || String(err)}`);
   }
 }
 
-spindle.on("MESSAGE_SENT", async (...args) => {
-  spindle.log.info(`[autoimg] MESSAGE_SENT event received. Args count: ${args.length}`);
+spindle.on("GENERATION_ENDED", async (payload) => {
+  spindle.log.info(`[autoimg] GENERATION_ENDED event received`);
+  spindle.log.info(`[autoimg] Payload keys: ${Object.keys(payload || {}).join(", ")}`);
   
-  // Handle different possible event signatures
-  let chatId, message;
-  if (args.length === 1) {
-    // Payload object: { chatId, message }
-    const payload = args[0];
-    chatId = payload?.chatId;
-    message = payload?.message;
-  } else if (args.length === 2) {
-    // Separate args: (chatId, message)
-    chatId = args[0];
-    message = args[1];
+  const { chatId, messageId, content, error } = payload || {};
+  spindle.log.info(`[autoimg] chatId: ${chatId}, messageId: ${messageId}, hasContent: ${typeof content === "string"}, error: ${error}`);
+  
+  if (error) {
+    spindle.log.info(`[autoimg] Skipping due to generation error: ${error}`);
+    return;
   }
   
-  spindle.log.info(`[autoimg] Extracted - chatId: ${chatId}, message type: ${typeof message}`);
-  
-  if (message) {
-    spindle.log.info(`[autoimg] Message keys: ${Object.keys(message).join(", ")}`);
-    spindle.log.info(`[autoimg] Message role: ${message.role}, content type: ${typeof message.content}`);
-    
-    // Try to extract content from different possible structures
-    let content = message.content;
-    if (typeof content === "object" && content !== null) {
-      content = content?.text || content?.content || JSON.stringify(content);
-    }
-    
-    if (typeof content === "string") {
-      const hasAutoimg = content.includes("[[AUTOIMG:");
-      spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
-      if (hasAutoimg) {
-        spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
-      }
-    }
+  if (typeof content !== "string") {
+    spindle.log.info(`[autoimg] Skipping: content is not a string`);
+    return;
   }
   
-  await replaceTagWithImage(chatId, message);
+  const hasAutoimg = content.includes("[[AUTOIMG:");
+  spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
+  
+  if (hasAutoimg) {
+    spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
+    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant" });
+  }
 });
 
 spindle.permissions.onChanged(({ permission, granted }) => {
