@@ -12,6 +12,9 @@ Lumiverse/Spindle backend extension that generates images **only when the assist
 ```
 
 3. Generates the image from the extracted prompt.
+   - The extension always appends this LoRA suffix at the end of the generation prompt:
+     `<lora:Anima Turbo LoRA v0.2:1>`
+   - Existing character LoRA tokens and tag prefixes in the prompt are preserved.
 4. Replaces the tag in that same assistant message with:
 
 ```
