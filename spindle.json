@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "name": "Auto Image Tag Replacer",
+  "identifier": "autoimg_tag_replacer",
+  "author": "sca255",
+  "description": "Generates images when assistant emits [[AUTOIMG: ...]] and replaces the tag with markdown image output.",
+  "permissions": ["interceptor", "image_gen", "chat_mutation"],
+  "entry_backend": "src/backend.js",
+  "minimum_lumiverse_version": "0.1.0"
+}

@@ -1,2 +1,35 @@
 # lumiverse-autoimg
-automatric image gen on ai demand
+
+Lumiverse/Spindle backend extension that generates images **only when the assistant intentionally emits a tag**, then replaces that tag in the assistant message with the generated image markdown.
+
+## Behavior
+
+1. Adds a prompt interceptor instruction telling the model to use an image tag sparingly, only when it improves immersion.
+2. Watches assistant messages for this tag format:
+
+```
+[[AUTOIMG: your image prompt here]]
+```
+
+3. Generates the image from the extracted prompt.
+4. Replaces the tag in that same assistant message with:
+
+```
+![Generated scene image: ...](...)
+```
+
+No tag = no image generation.
+
+## Files
+
+- `spindle.json` — extension manifest
+- `src/backend.js` — runtime logic (interceptor + tag detection + replacement)
+
+## Install
+
+1. Put this extension folder where your Lumiverse server can read it.
+2. Install it from the Lumiverse Extensions panel (or your existing extension install flow).
+3. Grant required permissions:
+   - `interceptor`
+   - `image_gen`
+   - `chat_mutation`
