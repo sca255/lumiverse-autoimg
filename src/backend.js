@@ -158,18 +158,22 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   try {
-    const avatarImageId = chatAvatarMap.get(chatId);
-    if (avatarImageId && storedUserId) {
-      spindle.log.info(`[autoimg] Looking up avatar image. imageId: ${avatarImageId}`);
-      const image = await spindle.images.get(avatarImageId, { userId: storedUserId });
-      if (image) {
-        initImage = image.url;
-        spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage?.substring(0, 80)}...`);
+    const characterId = chatCharacterMap.get(chatId);
+    if (characterId && storedUserId) {
+      spindle.log.info(`[autoimg] Fetching character ${characterId} with userId ${storedUserId}`);
+      const character = await spindle.characters.get(characterId, storedUserId);
+      if (character && character.image_id) {
+        spindle.log.info(`[autoimg] Character image_id: ${character.image_id}`);
+        const image = await spindle.images.get(character.image_id, { userId: storedUserId });
+        if (image) {
+          initImage = image.url;
+          spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage?.substring(0, 80)}...`);
+        }
       } else {
-        spindle.log.info(`[autoimg] Avatar image not found for imageId ${avatarImageId}`);
+        spindle.log.info(`[autoimg] Character has no image_id or character not found`);
       }
     } else {
-      spindle.log.info(`[autoimg] No avatar cached for chat ${chatId} or no userId`);
+      spindle.log.info(`[autoimg] No characterId cached for chat ${chatId} or no userId`);
     }
   } catch (e) {
     spindle.log.info(`[autoimg] Could not get character avatar: ${e.message}`);
