@@ -4,7 +4,7 @@
   "identifier": "autoimg_tag_replacer",
   "author": "sca255",
   "description": "Generates images when assistant emits [[AUTOIMG: ...]] and replaces the tag with markdown image output.",
-  "permissions": ["interceptor", "image_gen", "chat_mutation", "generation", "chats", "characters", "images"],
+  "permissions": ["interceptor", "chat_mutation", "chats"],
   "entry_backend": "src/backend.js",
   "entry_frontend": "src/frontend.js",
   "minimum_lumiverse_version": "0.1.0"

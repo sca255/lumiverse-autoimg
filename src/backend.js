@@ -1,57 +1,4 @@
-const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
-const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
-let storedUserId = null;
-let storedBaseUrl = null;
-let detectedProvider = 'sdwebuiapi';
-const chatCharacterMap = new Map();
-const chatAvatarDataMap = new Map();
-
-const PROVIDER_CONFIGS = {
-  sdwebuiapi: {
-    initImageField: 'init_images',
-    isArray: true,
-    stripDataUri: true,
-    extraParams: { denoising_strength: 0.6 },
-  },
-  novelai: {
-    initImageField: 'reference_image',
-    isArray: false,
-    stripDataUri: false,
-    extraParams: {},
-  },
-  openai: {
-    initImageField: 'image',
-    isArray: false,
-    stripDataUri: false,
-    extraParams: {},
-  },
-  default: {
-    initImageField: 'init_image',
-    isArray: false,
-    stripDataUri: false,
-    extraParams: {},
-  },
-};
-
-function getProviderConfig(providerId) {
-  return PROVIDER_CONFIGS[providerId] || PROVIDER_CONFIGS.default;
-}
-
-function waitForAvatarData(chatId, timeoutMs = 3000) {
-  return new Promise((resolve) => {
-    const data = chatAvatarDataMap.get(chatId);
-    if (data) return resolve(data);
-    const start = Date.now();
-    const check = () => {
-      const d = chatAvatarDataMap.get(chatId);
-      if (d) resolve(d);
-      else if (Date.now() - start >= timeoutMs) resolve(null);
-      else setTimeout(check, 100);
-    };
-    check();
-  });
-}
 
 function sanitizeAlt(text) {
   return String(text).replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -67,7 +14,7 @@ function buildPromptInstruction() {
     "- ALL tags are lowercase with underscores: 1girl, long_hair, blue_eyes",
     "- NO spaces in tags - use underscores only",
     "- Tags separated by commas",
-    "- Order: character → appearance → clothing → pose → expression → setting → style",
+    "- Order: character \u2192 appearance \u2192 clothing \u2192 pose \u2192 expression \u2192 setting \u2192 style",
     "- End with ONE sentence describing composition/lighting/mood",
     "- NO natural language in the tag section - only valid Danbooru tags",
     "",
@@ -114,213 +61,52 @@ function buildPromptInstruction() {
   ].join("\n");
 }
 
-function withRequiredLoraSuffix(prompt) {
-  const trimmed = String(prompt || "").trim();
-  if (!trimmed) return LORA_SUFFIX;
-
-  // Preserve existing character LoRAs/tags and only normalize this required LoRA.
-  const withoutRequiredSuffix = trimmed.split(LORA_SUFFIX).join("").trim();
-  if (!withoutRequiredSuffix) return LORA_SUFFIX;
-
-  return `${withoutRequiredSuffix} ${LORA_SUFFIX}`;
-}
-
 function registerInterceptorIfPermitted() {
-  if (interceptorRegistered) {
-    spindle.log.info("[autoimg] Interceptor already registered.");
-    return;
-  }
-  if (!spindle.permissions.has("interceptor")) {
-    spindle.log.warn("[autoimg] Cannot register interceptor: missing interceptor permission.");
-    return;
-  }
+  if (interceptorRegistered) return;
+  if (!spindle.permissions.has("interceptor")) return;
 
   spindle.registerInterceptor(async (messages) => {
-    const injected = {
-      role: "system",
-      content: buildPromptInstruction()
-    };
-    return [injected, ...messages];
+    return [{ role: "system", content: buildPromptInstruction() }, ...messages];
   }, 95);
 
   interceptorRegistered = true;
-  spindle.log.info("[autoimg] Interceptor registered successfully.");
+  spindle.log.info("[autoimg] Interceptor registered.");
 }
 
-spindle.onFrontendMessage(async (payload, userId) => {
-  if (payload.type === 'register_user') {
-    storedUserId = userId;
-    storedBaseUrl = payload.baseUrl;
-    spindle.log.info(`[autoimg] Registered: userId=${userId}, baseUrl=${storedBaseUrl}`);
-  } else if (payload.type === 'avatar_data') {
-    chatAvatarDataMap.set(payload.chatId, payload.base64);
-    spindle.log.info(`[autoimg] Cached avatar base64 for chat ${payload.chatId} from frontend`);
-  }
-});
+spindle.onFrontendMessage(async (payload) => {
+  if (payload.type === 'autoimg_result') {
+    if (!spindle.permissions.has("chat_mutation")) return;
 
-async function replaceTagWithImage(chatId, message) {
-  spindle.log.info(`[autoimg] replaceTagWithImage called. chatId: ${chatId}`);
-  
-  if (!message) {
-    spindle.log.info(`[autoimg] Skipping: message is null/undefined`);
-    return;
-  }
+    const { chatId, messageId, imageId, imageUrl, originalTag, prompt } = payload;
 
-  const content = message.content;
-  const messageId = message.id;
-  
-  spindle.log.info(`[autoimg] Message ID: ${messageId}, content type: ${typeof content}`);
-  
-  if (typeof content !== "string") {
-    spindle.log.info(`[autoimg] Skipping: content is not a string`);
-    return;
-  }
+    try {
+      const messages = await spindle.chat.getMessages(chatId);
+      const msg = messages.find(m => m.id === messageId);
+      if (!msg || typeof msg.content !== 'string' || !msg.content.includes(originalTag)) return;
 
-  const match = content.match(TAG_REGEX);
-  if (!match) {
-    spindle.log.info(`[autoimg] No AUTOIMG tag found in message content`);
-    return;
-  }
-  spindle.log.info(`[autoimg] Found AUTOIMG tag match: ${match[0].substring(0, 100)}...`);
+      const alt = sanitizeAlt(prompt) || "Generated scene image";
+      const updated = msg.content.replace(originalTag, `${originalTag}\n![${alt}](${imageUrl})`);
 
-  if (!spindle.permissions.has("image_gen")) {
-    spindle.log.warn("[autoimg] Skipped image generation: missing image_gen permission.");
-    return;
-  }
-  if (!spindle.permissions.has("chat_mutation")) {
-    spindle.log.warn("[autoimg] Skipped tag replacement: missing chat_mutation permission.");
-    return;
-  }
-  spindle.log.info(`[autoimg] Permissions OK. image_gen: ${spindle.permissions.has("image_gen")}, chat_mutation: ${spindle.permissions.has("chat_mutation")}`);
+      await spindle.chat.updateMessage(chatId, messageId, {
+        content: updated,
+        metadata: {
+          autoimg: {
+            prompt,
+            imageId,
+            generatedAt: Date.now(),
+          },
+        },
+      });
 
-  const prompt = (match[1] || "").trim();
-  if (!prompt) {
-    spindle.log.warn("[autoimg] Found AUTOIMG tag with empty prompt.");
-    return;
-  }
-  
-  const imagePrompt = prompt;
-  spindle.log.info(`[autoimg] Extracted prompt: ${imagePrompt.substring(0, 100)}...`);
-  const generationPrompt = withRequiredLoraSuffix(imagePrompt);
-
-  if (!storedUserId) {
-    spindle.log.error("[autoimg] Cannot generate image: userId not available. Make sure the frontend module is loaded.");
-    return;
-  }
-
-  let initImage = null;
-  initImage = chatAvatarDataMap.get(chatId) || null;
-  if (!initImage) {
-    spindle.log.info(`[autoimg] Avatar not cached yet, waiting for frontend...`);
-    initImage = await waitForAvatarData(chatId, 3000);
-  }
-  if (initImage) {
-    spindle.log.info(`[autoimg] Using cached avatar from frontend for chat ${chatId}`);
-  } else {
-    spindle.log.info(`[autoimg] No cached avatar for chat ${chatId}, generating without init_image`);
-  }
-
-  try {
-    spindle.log.info(`[autoimg] Calling imageGen.generate with userId: ${storedUserId}`);
-    
-    const generateParams = {
-      prompt: generationPrompt,
-      owner_chat_id: chatId,
-      userId: storedUserId
-    };
-    
-    if (initImage) {
-      const cfg = getProviderConfig(detectedProvider);
-      let initValue;
-      if (cfg.stripDataUri) {
-        initValue = initImage.includes(';base64,') ? initImage.split(';base64,')[1] : initImage;
-      } else {
-        initValue = initImage;
-      }
-      const overrideBody = { ...cfg.extraParams };
-      overrideBody[cfg.initImageField] = cfg.isArray ? [initValue] : initValue;
-      generateParams.parameters = {
-        rawRequestOverride: JSON.stringify(overrideBody),
-      };
-      spindle.log.info(`[autoimg] Provider config: ${detectedProvider || 'default'}, field: ${cfg.initImageField}`);
+      spindle.log.info(`[autoimg] Inserted image ${imageId} into message ${messageId}`);
+    } catch (err) {
+      spindle.log.error(`[autoimg] Message update failed: ${err?.message || String(err)}`);
     }
-    
-    const result = await spindle.imageGen.generate(generateParams);
-    spindle.log.info(`[autoimg] Image generation result: ${JSON.stringify(result).substring(0, 200)}...`);
-
-    if (result?.provider && !detectedProvider) {
-      detectedProvider = result.provider;
-      spindle.log.info(`[autoimg] Detected provider: ${detectedProvider}`);
-    }
-
-    const imageRef = result?.imageUrl || result?.imageDataUrl;
-    if (!imageRef) {
-      throw new Error("Image generation returned no imageUrl/imageDataUrl.");
-    }
-
-    const alt = sanitizeAlt(imagePrompt) || "Generated scene image";
-    const replacement = `${match[0]}\n![${alt}](${imageRef})`;
-    const updatedContent = content.replace(match[0], replacement);
-
-    await spindle.chat.updateMessage(chatId, messageId, {
-      content: updatedContent,
-      metadata: {
-        autoimg: {
-          prompt: imagePrompt,
-          generationPrompt,
-          initImage,
-          imageId: result?.imageId || null,
-          provider: result?.provider || null,
-          model: result?.model || null,
-          generatedAt: Date.now()
-        }
-      }
-    });
-
-    spindle.log.info(`[autoimg] Generated image for message ${messageId}.`);
-  } catch (err) {
-    spindle.log.error(`[autoimg] Image generation failed: ${err?.message || String(err)}`);
-  }
-}
-
-spindle.on("GENERATION_STARTED", (payload) => {
-  const { chatId, characterId } = payload || {};
-  if (chatId && characterId) {
-    chatCharacterMap.set(chatId, characterId);
-    spindle.log.info(`[autoimg] Cached characterId ${characterId} for chat ${chatId}`);
-  }
-});
-
-spindle.on("GENERATION_ENDED", async (payload) => {
-  spindle.log.info(`[autoimg] GENERATION_ENDED event received`);
-  spindle.log.info(`[autoimg] Payload keys: ${Object.keys(payload || {}).join(", ")}`);
-  
-  const { chatId, messageId, content, error } = payload || {};
-  spindle.log.info(`[autoimg] chatId: ${chatId}, messageId: ${messageId}, hasContent: ${typeof content === "string"}, error: ${error}`);
-  
-  if (error) {
-    spindle.log.info(`[autoimg] Skipping due to generation error: ${error}`);
-    return;
-  }
-  
-  if (typeof content !== "string") {
-    spindle.log.info(`[autoimg] Skipping: content is not a string`);
-    return;
-  }
-  
-  const hasAutoimg = content.includes("[[AUTOIMG:");
-  spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
-  
-  if (hasAutoimg) {
-    spindle.log.info(`[autoimg] Message content preview: ${content.substring(0, 300)}...`);
-    await replaceTagWithImage(chatId, { id: messageId, content, role: "assistant" });
   }
 });
 
 spindle.permissions.onChanged(({ permission, granted }) => {
-  if (permission === "interceptor" && granted) {
-    registerInterceptorIfPermitted();
-  }
+  if (permission === "interceptor" && granted) registerInterceptorIfPermitted();
 });
 
 spindle.permissions.onDenied(({ permission, operation }) => {
@@ -328,6 +114,5 @@ spindle.permissions.onDenied(({ permission, operation }) => {
 });
 
 spindle.log.info("[autoimg] Extension loading...");
-spindle.log.info(`[autoimg] Available permissions: interceptor=${spindle.permissions.has("interceptor")}, image_gen=${spindle.permissions.has("image_gen")}, chat_mutation=${spindle.permissions.has("chat_mutation")}`);
 registerInterceptorIfPermitted();
-spindle.log.info("[autoimg] Extension loaded. Waiting for userId from frontend...");
+spindle.log.info("[autoimg] Extension loaded.");

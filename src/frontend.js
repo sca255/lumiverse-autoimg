@@ -1,47 +1,46 @@
 export function setup(ctx) {
   ctx.sendToBackend({ type: 'register_user', baseUrl: window.location.origin })
 
-  async function fetchAvatarForChat(chatId, characterId) {
-    try {
-      if (!characterId) {
-        const chatResp = await fetch(`/api/v1/chats/${chatId}`)
-        if (!chatResp.ok) return
-        const chatData = await chatResp.json()
-        characterId = chatData.character_id || chatData.characterId
-      }
-      if (!characterId) return
-
-      const charResp = await fetch(`/api/v1/characters/${characterId}`)
-      if (!charResp.ok) return
-      const charData = await charResp.json()
-      const imageId = charData.image_id || charData.imageId
-      if (!imageId) return
-
-      const imgResp = await fetch(`/api/v1/images/${imageId}`)
-      if (!imgResp.ok) return
-      const buf = await imgResp.arrayBuffer()
-      const bytes = new Uint8Array(buf)
-      let binary = ''
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-      const dataUrl = `data:${imgResp.headers.get('content-type') || 'image/png'};base64,${btoa(binary)}`
-      ctx.sendToBackend({ type: 'avatar_data', chatId, base64: dataUrl })
-    } catch (e) {
-      // silent — text2img fallback
+  async function callNativeGen(chatId, prompt) {
+    const native = await (await fetch('/api/v1/settings/imageGeneration')).json()
+    const body = {
+      ...(native?.value || native),
+      prompt,
+      chatId,
+      forceGeneration: true,
+      skipParse: true,
     }
+    const resp = await fetch('/api/v1/image-gen/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!resp.ok) throw new Error(await resp.text())
+    const r = await resp.json()
+    if (!r.generated) throw new Error(r.reason || 'Generation skipped')
+    if (!r.imageId) throw new Error('Image not persisted')
+    return r
   }
 
-  const unsubGenStart = ctx.events.on('GENERATION_STARTED', (payload) => {
-    if (payload?.chatId && payload?.characterId) {
-      fetchAvatarForChat(payload.chatId, payload.characterId)
-    }
+  const unsubEnded = ctx.events.on('GENERATION_ENDED', async (p) => {
+    if (p?.error || typeof p?.content !== 'string') return
+    const m = p.content.match(/\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/)
+    if (!m) return
+    const prompt = (m[1] || '').trim()
+    if (!prompt) return
+    try {
+      const r = await callNativeGen(p.chatId, prompt)
+      ctx.sendToBackend({
+        type: 'autoimg_result',
+        chatId: p.chatId,
+        messageId: p.messageId,
+        imageId: r.imageId,
+        imageUrl: r.imageUrl || `/api/v1/image-gen/results/${r.imageId}`,
+        originalTag: m[0],
+        prompt,
+      })
+    } catch (e) {}
   })
 
-  const unsubSwitch = ctx.events.on('CHAT_SWITCHED', (payload) => {
-    if (payload?.chatId) {
-      ctx.sendToBackend({ type: 'register_user', baseUrl: window.location.origin })
-      fetchAvatarForChat(payload.chatId, payload.characterId)
-    }
-  })
-
-  return () => { unsubGenStart(); unsubSwitch() }
+  return () => { unsubEnded() }
 }
