@@ -3,7 +3,7 @@ const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
 let storedBaseUrl = null;
-let detectedProvider = null;
+let detectedProvider = 'sdwebuiapi';
 const chatCharacterMap = new Map();
 const chatAvatarDataMap = new Map();
 
@@ -36,6 +36,21 @@ const PROVIDER_CONFIGS = {
 
 function getProviderConfig(providerId) {
   return PROVIDER_CONFIGS[providerId] || PROVIDER_CONFIGS.default;
+}
+
+function waitForAvatarData(chatId, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const data = chatAvatarDataMap.get(chatId);
+    if (data) return resolve(data);
+    const start = Date.now();
+    const check = () => {
+      const d = chatAvatarDataMap.get(chatId);
+      if (d) resolve(d);
+      else if (Date.now() - start >= timeoutMs) resolve(null);
+      else setTimeout(check, 100);
+    };
+    check();
+  });
 }
 
 function sanitizeAlt(text) {
@@ -195,6 +210,10 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   initImage = chatAvatarDataMap.get(chatId) || null;
+  if (!initImage) {
+    spindle.log.info(`[autoimg] Avatar not cached yet, waiting for frontend...`);
+    initImage = await waitForAvatarData(chatId, 3000);
+  }
   if (initImage) {
     spindle.log.info(`[autoimg] Using cached avatar from frontend for chat ${chatId}`);
   } else {
