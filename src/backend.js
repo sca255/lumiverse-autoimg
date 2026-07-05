@@ -133,6 +133,9 @@ async function replaceTagWithImage(chatId, message) {
 
   try {
     spindle.log.info(`[autoimg] Calling imageGen.generate...`);
+    
+    // Generate image - for user-scoped extensions, userId is inferred automatically
+    // For operator-scoped extensions, this will fail with "userId is required"
     const result = await spindle.imageGen.generate({
       prompt: generationPrompt,
       owner_chat_id: chatId
