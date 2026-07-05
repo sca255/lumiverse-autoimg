@@ -3,6 +3,7 @@ const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
 const chatCharacterMap = new Map();
+const chatAvatarMap = new Map();
 
 function sanitizeAlt(text) {
   return String(text).replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -157,26 +158,21 @@ async function replaceTagWithImage(chatId, message) {
 
   let initImage = null;
   try {
-    const characterId = chatCharacterMap.get(chatId);
-    if (characterId && storedUserId) {
-      spindle.log.info(`[autoimg] Looking up character image. characterId: ${characterId}`);
-      const { data } = await spindle.images.list({
-        characterId,
-        userId: storedUserId,
-        limit: 1,
-        specificity: 'full',
-      });
-      if (data && data.length > 0) {
-        initImage = data[0].url;
-        spindle.log.info(`[autoimg] Using character image as init_image: ${initImage?.substring(0, 80)}...`);
+    const avatarImageId = chatAvatarMap.get(chatId);
+    if (avatarImageId && storedUserId) {
+      spindle.log.info(`[autoimg] Looking up avatar image. imageId: ${avatarImageId}`);
+      const image = await spindle.images.get(avatarImageId, { userId: storedUserId });
+      if (image) {
+        initImage = image.url;
+        spindle.log.info(`[autoimg] Using character avatar as init_image: ${initImage?.substring(0, 80)}...`);
       } else {
-        spindle.log.info(`[autoimg] No images found for character ${characterId}`);
+        spindle.log.info(`[autoimg] Avatar image not found for imageId ${avatarImageId}`);
       }
     } else {
-      spindle.log.info(`[autoimg] No characterId cached for chat ${chatId} or no userId`);
+      spindle.log.info(`[autoimg] No avatar cached for chat ${chatId} or no userId`);
     }
   } catch (e) {
-    spindle.log.info(`[autoimg] Could not get character image: ${e.message}`);
+    spindle.log.info(`[autoimg] Could not get character avatar: ${e.message}`);
   }
 
   try {
@@ -234,6 +230,14 @@ spindle.on("GENERATION_STARTED", (payload) => {
   if (chatId && characterId) {
     chatCharacterMap.set(chatId, characterId);
     spindle.log.info(`[autoimg] Cached characterId ${characterId} for chat ${chatId}`);
+  }
+});
+
+spindle.on("CHARACTER_AVATAR_CHANGED", (payload) => {
+  const { chatId, imageId } = payload || {};
+  if (chatId && imageId) {
+    chatAvatarMap.set(chatId, imageId);
+    spindle.log.info(`[autoimg] Cached avatar imageId ${imageId} for chat ${chatId}`);
   }
 });
 
