@@ -28,8 +28,9 @@ export function setup(ctx) {
     if (!m) return
     const prompt = (m[1] || '').trim()
     if (!prompt) return
+    const genPrompt = prompt.includes('<lora:') ? prompt : `${prompt} <lora:Anima Turbo LoRA v0.2:1>`
     try {
-      const r = await callNativeGen(p.chatId, prompt)
+      const r = await callNativeGen(p.chatId, genPrompt)
       ctx.sendToBackend({
         type: 'autoimg_result',
         chatId: p.chatId,
@@ -38,6 +39,7 @@ export function setup(ctx) {
         imageUrl: r.imageUrl || `/api/v1/image-gen/results/${r.imageId}`,
         originalTag: m[0],
         prompt,
+        genPrompt,
       })
     } catch (e) {}
   })

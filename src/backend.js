@@ -77,7 +77,7 @@ spindle.onFrontendMessage(async (payload) => {
   if (payload.type === 'autoimg_result') {
     if (!spindle.permissions.has("chat_mutation")) return;
 
-    const { chatId, messageId, imageId, imageUrl, originalTag, prompt } = payload;
+    const { chatId, messageId, imageId, imageUrl, originalTag, prompt, genPrompt } = payload;
 
     try {
       const messages = await spindle.chat.getMessages(chatId);
@@ -92,6 +92,7 @@ spindle.onFrontendMessage(async (payload) => {
         metadata: {
           autoimg: {
             prompt,
+            genPrompt,
             imageId,
             generatedAt: Date.now(),
           },
