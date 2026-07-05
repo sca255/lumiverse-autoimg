@@ -53,7 +53,14 @@ function withRequiredLoraSuffix(prompt) {
 }
 
 function registerInterceptorIfPermitted() {
-  if (interceptorRegistered || !spindle.permissions.has("interceptor")) return;
+  if (interceptorRegistered) {
+    spindle.log.info("[autoimg] Interceptor already registered.");
+    return;
+  }
+  if (!spindle.permissions.has("interceptor")) {
+    spindle.log.warn("[autoimg] Cannot register interceptor: missing interceptor permission.");
+    return;
+  }
 
   spindle.registerInterceptor(async (messages) => {
     const injected = {
@@ -64,14 +71,22 @@ function registerInterceptorIfPermitted() {
   }, 95);
 
   interceptorRegistered = true;
-  spindle.log.info("[autoimg] Interceptor registered.");
+  spindle.log.info("[autoimg] Interceptor registered successfully.");
 }
 
 async function replaceTagWithImage(chatId, message) {
-  if (!message || message.role !== "assistant" || typeof message.content !== "string") return;
+  spindle.log.info(`[autoimg] replaceTagWithImage called. chatId: ${chatId}`);
+  if (!message || message.role !== "assistant" || typeof message.content !== "string") {
+    spindle.log.info(`[autoimg] Skipping: message=${!!message}, role=${message?.role}, contentType=${typeof message?.content}`);
+    return;
+  }
 
   const match = message.content.match(TAG_REGEX);
-  if (!match) return;
+  if (!match) {
+    spindle.log.info(`[autoimg] No AUTOIMG tag found in message content`);
+    return;
+  }
+  spindle.log.info(`[autoimg] Found AUTOIMG tag match: ${match[0].substring(0, 100)}...`);
 
   if (!spindle.permissions.has("image_gen")) {
     spindle.log.warn("[autoimg] Skipped image generation: missing image_gen permission.");
@@ -81,6 +96,7 @@ async function replaceTagWithImage(chatId, message) {
     spindle.log.warn("[autoimg] Skipped tag replacement: missing chat_mutation permission.");
     return;
   }
+  spindle.log.info(`[autoimg] Permissions OK. image_gen: ${spindle.permissions.has("image_gen")}, chat_mutation: ${spindle.permissions.has("chat_mutation")}`);
 
   const prompt = (match[1] || "").trim();
   if (!prompt) {
@@ -126,6 +142,14 @@ async function replaceTagWithImage(chatId, message) {
 }
 
 spindle.on("MESSAGE_SENT", async ({ chatId, message }) => {
+  spindle.log.info(`[autoimg] MESSAGE_SENT event received. Role: ${message?.role}, Content type: ${typeof message?.content}`);
+  if (typeof message?.content === "string") {
+    const hasAutoimg = message.content.includes("[[AUTOIMG:");
+    spindle.log.info(`[autoimg] Message contains AUTOIMG tag: ${hasAutoimg}`);
+    if (hasAutoimg) {
+      spindle.log.info(`[autoimg] Message content preview: ${message.content.substring(0, 200)}...`);
+    }
+  }
   await replaceTagWithImage(chatId, message);
 });
 
@@ -139,5 +163,7 @@ spindle.permissions.onDenied(({ permission, operation }) => {
   spindle.log.warn(`[autoimg] Permission denied: ${permission} for ${operation}`);
 });
 
+spindle.log.info("[autoimg] Extension loading...");
+spindle.log.info(`[autoimg] Available permissions: interceptor=${spindle.permissions.has("interceptor")}, image_gen=${spindle.permissions.has("image_gen")}, chat_mutation=${spindle.permissions.has("chat_mutation")}`);
 registerInterceptorIfPermitted();
 spindle.log.info("[autoimg] Extension loaded.");
