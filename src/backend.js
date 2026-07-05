@@ -2,6 +2,7 @@ const TAG_REGEX = /\[\[AUTOIMG:\s*([\s\S]*?)\s*\]\]/;
 const LORA_SUFFIX = "<lora:Anima Turbo LoRA v0.2:1>";
 let interceptorRegistered = false;
 let storedUserId = null;
+const chatCharacterMap = new Map();
 
 function sanitizeAlt(text) {
   return String(text).replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -155,8 +156,28 @@ async function replaceTagWithImage(chatId, message) {
   }
 
   let initImage = null;
-  // Note: img2img with character image is not possible with operator-scoped extensions
-  // because chats.get() and characters.get() require userId but don't accept it as a param.
+  try {
+    const characterId = chatCharacterMap.get(chatId);
+    if (characterId && storedUserId) {
+      spindle.log.info(`[autoimg] Looking up character image. characterId: ${characterId}`);
+      const { data } = await spindle.images.list({
+        characterId,
+        userId: storedUserId,
+        limit: 1,
+        specificity: 'full',
+      });
+      if (data && data.length > 0) {
+        initImage = data[0].url;
+        spindle.log.info(`[autoimg] Using character image as init_image: ${initImage?.substring(0, 80)}...`);
+      } else {
+        spindle.log.info(`[autoimg] No images found for character ${characterId}`);
+      }
+    } else {
+      spindle.log.info(`[autoimg] No characterId cached for chat ${chatId} or no userId`);
+    }
+  } catch (e) {
+    spindle.log.info(`[autoimg] Could not get character image: ${e.message}`);
+  }
 
   try {
     spindle.log.info(`[autoimg] Calling imageGen.generate with userId: ${storedUserId}`);
@@ -207,6 +228,14 @@ async function replaceTagWithImage(chatId, message) {
     spindle.log.error(`[autoimg] Image generation failed: ${err?.message || String(err)}`);
   }
 }
+
+spindle.on("GENERATION_STARTED", (payload) => {
+  const { chatId, characterId } = payload || {};
+  if (chatId && characterId) {
+    chatCharacterMap.set(chatId, characterId);
+    spindle.log.info(`[autoimg] Cached characterId ${characterId} for chat ${chatId}`);
+  }
+});
 
 spindle.on("GENERATION_ENDED", async (payload) => {
   spindle.log.info(`[autoimg] GENERATION_ENDED event received`);
