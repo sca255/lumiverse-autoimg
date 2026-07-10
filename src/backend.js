@@ -6,58 +6,14 @@ function sanitizeAlt(text) {
 
 function buildPromptInstruction() {
   return [
-    "## Image Generation Trigger",
-    "Generate images using this EXACT format:",
-    "[[AUTOIMG: danbooru_tags, more_tags, even_more_tags. Brief composition sentence.]]",
+    "You MAY very rarely use [[AUTOIMG: danbooru_tags. sentence.]] to generate an image — at most once per ~15 messages, for pivotal scene-establishing moments only.",
     "",
-    "### DANBOORU TAG FORMAT (strict rules):",
-    "- ALL tags are lowercase with underscores: 1girl, long_hair, blue_eyes",
-    "- NO spaces in tags - use underscores only",
-    "- Tags separated by commas",
-    "- Order: character \u2192 appearance \u2192 clothing \u2192 pose \u2192 expression \u2192 setting \u2192 style",
-    "- End with ONE sentence describing composition/lighting/mood",
-    "- NO natural language in the tag section - only valid Danbooru tags",
+    "### DANBOORU FORMAT: lowercase_underscored_tags, ordered_by_importance. End with one brief composition sentence.",
+    "- Character, appearance, clothing, pose, expression, setting, style",
+    "- Example: [[AUTOIMG: ancient_library, wooden_shelves, stained_glass, dust_motes, sunlight_beams, vast_interior. Golden light through tall windows illuminates floating dust.]]",
     "",
-    "### TAG ORDER EXAMPLES:",
-    "Character: 1girl, 1boy, multiple_girls",
-    "Hair: blonde_hair, long_hair, ponytail, twintails",
-    "Eyes: blue_eyes, green_eyes, heterochromia",
-    "Body: tanned_skin, pale_skin, muscular, slim",
-    "Clothing: dress, armor, school_uniform, swimsuit",
-    "Pose: standing, sitting, kneeling, lying_down, action_pose",
-    "Expression: smile, blush, serious, crying, open_mouth",
-    "Setting: indoors, outdoors, forest, city, bedroom, throne_room",
-    "Style: masterpiece, best_quality, highly_detailed, anime_style",
-    "",
-    "### WHEN TO USE:",
-    "- New scene or location description",
-    "- Character appearance reveal",
-    "- Dramatic visual moment",
-    "- User asks to see something",
-    "",
-    "### WHEN NOT TO USE:",
-    "- Regular dialogue or text responses",
-    "- Concepts without visual element",
-    "- Scene already established",
-    "",
-    "### FORMAT RULES:",
-    "- ONE tag per message only",
-    "- Tag on its OWN LINE",
-    "- Text response continues after tag",
-    "",
-    "### EXAMPLES:",
-    "",
-    "User: 'Show me the library'",
-    "Response: [[AUTOIMG: library, ancient_books, wooden_shelves, stained_glass, dust_particles, sunlight_beams, high_ceiling, fantasy, ornate_architecture, vast_interior. Warm sunlight through stained glass, golden light on ancient books.]]",
-    "The library stretches upward indefinitely...",
-    "",
-    "User: 'Show my character'",
-    "Response: [[AUTOIMG: 1girl, silver_hair, long_hair, blue_eyes, leather_armor, intricate_engravings, standing, moonlit_forest, forest_clearing, night, fantasy, confident_pose, detailed_portrait, upper_body. Moonlight catches silver hair, armor gleams softly.]]",
-    "She stands ready, determination in her eyes...",
-    "",
-    "User: 'What does the throne room look like?'",
-    "Response: [[AUTOIMG: throne_room, grand_hall, marble_pillars, red_carpet, chandelier, dramatic_lighting, high_ceiling, medieval_fantasy, ornate_decorations, vast_interior. Crystal chandeliers cast dramatic shadows across marble.]]",
-    "The throne room opens before you, vast and imposing..."
+    "### WHEN: Only when a new scene or character first appears. Never for established scenes, never because a previous message had an image, never for dialogue.",
+    "### WHEN NOT: Never use it. If in doubt, omit it. This should fire at most once in a blue moon for first-time visual establishment."
   ].join("\n");
 }
 
@@ -67,7 +23,7 @@ function registerInterceptorIfPermitted() {
 
   spindle.registerInterceptor(async (messages) => {
     return [{ role: "system", content: buildPromptInstruction() }, ...messages];
-  }, 95);
+  }, 10);
 
   interceptorRegistered = true;
   spindle.log.info("[autoimg] Interceptor registered.");
